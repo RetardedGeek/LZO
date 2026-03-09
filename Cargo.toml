@@ -1,0 +1,11 @@
+[package]
+name = "minilzo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[features]
+efficient_unaligned_access = []
+ctz64 = []
+ctz32 = []

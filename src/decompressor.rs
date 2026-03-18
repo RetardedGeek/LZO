@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub enum Error
 {
     output_overrun,
@@ -178,8 +179,8 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                 {
                     next = t & 3;
                     m_pos = op - 1;
-                    m_pos -= t >> 2;
-                    m_pos -= (input[ip] as usize) << 2;
+                    m_pos = m_pos.wrapping_sub( t >> 2);
+                    m_pos = m_pos.wrapping_sub((input[ip] as usize) << 2);
                     ip += 1;
                     TEST_LB!(m_pos,op);
                     NEED!(out,op,2);
@@ -211,19 +212,19 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                 else
                 {
                     next = t & 3;
-                    m_pos = op - (1 + M2_MAX_OFFSET);
-                    m_pos -= t >> 2;
-                    m_pos -= (input[ip] as usize) << 2;
+                    m_pos = op.wrapping_sub(1 + M2_MAX_OFFSET);
+                    m_pos = m_pos.wrapping_sub(t >> 2);
+                    m_pos = m_pos.wrapping_sub((input[ip] as usize) << 2);
                     ip += 1;
-                    t = 3;
+                    t = 3
                 }
             }
             else if t >= 64
             {
                 next = t & 3;
-                m_pos = op - 1;
-                m_pos -= (t >> 2) & 7;
-                m_pos -= (input[ip] as usize) << 3;
+    m_pos = op.wrapping_sub(1);
+    m_pos = m_pos.wrapping_sub((t >> 2) & 7);
+    m_pos = m_pos.wrapping_sub((input[ip] as usize) << 3);
                 ip += 1;
                 t = (t >> 5) - 1 + (3 - 1);
             }
@@ -252,7 +253,7 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                 m_pos = op - 1;
                 next = get_unaligned_le16(input, ip);
                 ip += 2;
-                m_pos -= next >> 2;
+                m_pos = m_pos.wrapping_sub(next >> 2);
                 next &= 3;
             }
             else
@@ -295,7 +296,7 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                 else
                 {
                     m_pos = op;
-                    m_pos -= (t & 8) << 11;
+                    m_pos = m_pos.wrapping_sub((t & 8) << 11);
                     t = (t & 7) + (3 - 1);
                     if t == 2
                     {
@@ -318,8 +319,8 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                         next = get_unaligned_le16(input, ip);
                     }
                     ip += 2;
-                    m_pos -= next >> 2;
-                    next &= 3;
+                    m_pos = m_pos.wrapping_sub(next >> 2);
+                     next &= 3;
                     if m_pos == op
                     {
                         *out_len = op;
@@ -340,7 +341,7 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                             Err(Error::input_overrun)
                         };
                     }
-                    m_pos -= 0x4000;
+                    m_pos = m_pos.wrapping_sub(0x4000);
                 }
             }
         } // end if !skip_decode
@@ -356,10 +357,13 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
             {
                 loop
                 {
-                    out[op..op+8].copy_from_slice(&input[m_pos..m_pos+8]);
+                    let mut temp_out= [0;8];
+                    temp_out[0..8].copy_from_slice(&out[m_pos..m_pos+8]);
+                    out[op..op+8].copy_from_slice(&temp_out[0..8]);
                     op += 8;
                     m_pos += 8;
-                    out[op..op+8].copy_from_slice(&input[m_pos..m_pos+8]);
+                    temp_out[0..8].copy_from_slice(&out[m_pos..m_pos+8]);
+                    out[op..op+8].copy_from_slice(&temp_out[0..8]);
                     op += 8;
                     m_pos += 8;
                     if op >= oe

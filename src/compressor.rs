@@ -172,6 +172,7 @@ pub fn lzo1x_do_compress(input :&[u8],out :&mut [u8],out_ind :&mut usize,tp :&mu
                 {               
                     out[op]=input[ii];
                     op+=1;ii+=1;
+					t-=1;
                 }
             }
         }
@@ -190,7 +191,7 @@ pub fn lzo1x_do_compress(input :&[u8],out :&mut [u8],out_ind :&mut usize,tp :&mu
 			continue 'next;
         }
 
-        m_len=4;
+		m_len=4;
         'outer: loop{
 #[cfg(all(feature = "efficient_unaligned_access", feature = "ctz64"))]
    {        
@@ -341,13 +342,16 @@ pub fn lzo1x_do_compress(input :&[u8],out :&mut [u8],out_ind :&mut usize,tp :&mu
             op+=1;
 		}
 		*state_offset = -2;
+
 		break 'm_len_done;
 	}
-}   
-}
+	break 'outer;
+}   //outer
 
 }
-	}
+
+}//'literal
+	}//'m
 *out_ind = op;
 *tp = in_end - (ii - ti);
 return Ok(());

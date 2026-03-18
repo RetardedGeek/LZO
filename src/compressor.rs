@@ -44,7 +44,7 @@ pub fn lzo1x_do_compress(input :&[u8],out :&mut [u8],out_ind :&mut usize,tp :&mu
     let in_end=input.len();
     let mut ip :usize=0;
     let mut ii=ip;
-    let mut op=0;
+    let mut op=*out_ind;
     let mut ti=*tp;
     let mut dict=wrkmem;
 
@@ -88,7 +88,7 @@ pub fn lzo1x_do_compress(input :&[u8],out :&mut [u8],out_ind :&mut usize,tp :&mu
 
 			while ir+8<=limit
 			{
-				dv64=get_unaligned_32le(input,ir) as u64;
+				dv64=get_unaligned_64le(input,ir) as u64;
 				if dv64!=0
 				{
 					ir += (dv64.trailing_zeros()/8 )as usize;
@@ -156,17 +156,15 @@ pub fn lzo1x_do_compress(input :&[u8],out :&mut [u8],out_ind :&mut usize,tp :&mu
                     out[op]=tt as u8;
                     op+=1
                 }
-                out[op..op+16].copy_from_slice(&input[ii..ii+16]);
-                op+=16;
-                ii+=16;
-                t -= 16;
 
-                while t>=16
+                loop
                 {
                     out[op..op+16].copy_from_slice(&input[ii..ii+16]);
                     op+=16;
                     ii+=16;
                     t -= 16;  
+					if t<16
+					{break;}
                 }
                 while t>0
                 {               
@@ -236,37 +234,39 @@ pub fn lzo1x_do_compress(input :&[u8],out :&mut [u8],out_ind :&mut usize,tp :&mu
 
     if input[ip+m_len]==input[m_pos+m_len] 
     {
-        while input[ip+m_len]==input[m_pos+m_len]
+        loop
         {
             m_len += 1;
-				if input[ip+m_len] != input[m_pos+m_len]
-					{break;}
-				m_len += 1;
-				if input[ip+m_len] != input[m_pos+m_len]
-					{break;}
-				m_len += 1;
-				if input[ip+m_len] != input[m_pos+m_len]
-					{break;}
-				m_len += 1;
-				if input[ip+m_len] != input[m_pos+m_len]
-					{break;}
-				m_len += 1;
-				if input[ip+m_len] != input[m_pos+m_len]
-					{break;}
-				m_len += 1;
-				if input[ip+m_len] != input[m_pos+m_len]
+			if input[ip+m_len] != input[m_pos+m_len]
 				{break;}
-				m_len += 1;
-				if input[ip+m_len] != input[m_pos+m_len]
-					{break;}
-				m_len += 1;
-				if ip + m_len >= ip_end
-					{break 'outer;}
+			m_len += 1;
+			if input[ip+m_len] != input[m_pos+m_len]
+				{break;}
+			m_len += 1;
+			if input[ip+m_len] != input[m_pos+m_len]
+				{break;}
+			m_len += 1;
+			if input[ip+m_len] != input[m_pos+m_len]
+			{break;}
+			m_len += 1;
+			if input[ip+m_len] != input[m_pos+m_len]
+				{break;}
+			m_len += 1;
+			if input[ip+m_len] != input[m_pos+m_len]
+	            {break;}
+			m_len += 1;
+			if input[ip+m_len] != input[m_pos+m_len]
+				{break;}
+			m_len += 1;
+			if ip + m_len >= ip_end
+				{break 'outer;}
         }
 
     }
   
 }
+break 'outer;
+	}
 'm_len_done: loop
     {       
 		m_off = ip - m_pos;
@@ -345,8 +345,8 @@ pub fn lzo1x_do_compress(input :&[u8],out :&mut [u8],out_ind :&mut usize,tp :&mu
 
 		break 'm_len_done;
 	}
-	break 'outer;
-}   //outer
+	ii=ip;
+	continue 'next;
 
 }
 
@@ -382,8 +382,8 @@ pub fn  lzogeneric1x_1_compress(input :&[u8],in_len:usize,out :&mut [u8],out_len
 	while l > 20 {
 		let ll = l.min(m4_max_offset + 1);
 		let ll_end = ip + ll;
-		if ll_end + ((t + ll) >> 5) <= ll_end
-			{break;}
+		// if ll_end + ((t + ll) >> 5) <= ll_end
+		// 	{break;}
 		wrkmem[..D_SIZE].fill(0);
 		lzo1x_do_compress(&input[ip..ip+ll], out, &mut op, &mut t, wrkmem, &mut state_offset, bitstream_version)?;
 		ip += ll;

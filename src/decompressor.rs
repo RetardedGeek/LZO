@@ -115,15 +115,16 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
 
         'inner: loop
         {
-        if !skip_decode
-        {
-            t = input[ip] as usize;
-            ip += 1;
-            if t < 16
+            if !skip_decode
             {
-                if state == 0
+                t = input[ip] as usize;
+                ip += 1;
+            }
+            if t < 16 || skip_decode
+            {
+                if skip_decode || state == 0
                 {
-                    if t == 0
+                    if t == 0 && !skip_decode
                     {
                         let mut offset: usize;
                         let ip_last = ip;
@@ -141,7 +142,8 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                         t += offset + 15 + (input[ip] as usize);
                         ip += 1;
                     }
-                    t += 3;
+                    if !skip_decode
+                    {t += 3;}
 
                     // literal copy from input to out
                     if HAVE!(input,ip,t+15) && HAVE!(out,op,t+15)
@@ -226,7 +228,9 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
     m_pos = m_pos.wrapping_sub((t >> 2) & 7);
     m_pos = m_pos.wrapping_sub((input[ip] as usize) << 3);
                 ip += 1;
+                println!("decode: t={} state={} ip={} op={}", t, state, ip, op);
                 t = (t >> 5) - 1 + (3 - 1);
+
             }
             else if t >= 32
             {
@@ -253,6 +257,7 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                 m_pos = op - 1;
                 next = get_unaligned_le16(input, ip);
                 ip += 2;
+                println!("t>=32: next={} next>>2={} op={}", next, next>>2, op);
                 m_pos = m_pos.wrapping_sub(next >> 2);
                 next &= 3;
             }
@@ -344,10 +349,13 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                     m_pos = m_pos.wrapping_sub(0x4000);
                 }
             }
-        } // end if !skip_decode
+        // end if !skip_decode
 
         // TEST_LB(m_pos)
-        TEST_LB!(m_pos,op);
+        // TEST_LB!(m_pos,op);
+        // TEST_LB(m_pos)
+println!("TEST_LB: m_pos={} op={} t={} state={}", m_pos, op, t, state);
+TEST_LB!(m_pos,op);
 
         // match copy
         if op - m_pos >= 8

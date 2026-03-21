@@ -6,7 +6,7 @@ const D_BITS: usize = 13;
 const D_SIZE: usize = 1 << D_BITS;
 const D_MASK: u32 = (D_SIZE - 1) as u32;
 
-const M2_MAX_LEN: usize = 64;
+const M2_MAX_LEN: usize = 8;
 const M2_MAX_OFFSET: usize = 0x0800;
 
 const M3_MARKER: u8 = 32;

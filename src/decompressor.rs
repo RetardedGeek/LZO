@@ -44,7 +44,7 @@ macro_rules! TEST_LB
 {
     ($m_pos:expr,$op:expr) =>
     {
-        if $m_pos > $op
+        if $m_pos >= $op
         {
             return Err(Error::lzo_e_error);
         }
@@ -76,10 +76,9 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
     }
     else
     { bitstream_version = 0; }
-
+    let mut skip_decode = false;
     'outer: loop
     {
-        let mut skip_decode = false;
         if input[ip] > 17
         {
             t = (input[ip] as usize) - 17;
@@ -90,28 +89,44 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                 // match_next inline
                 state = next;
                 t = next;
-                if HAVE!(input,ip,6) && HAVE!(out,op,4)
-                {
-                    out[op..op+4].copy_from_slice(&input[ip..ip+4]);
-                    op += t;
-                    ip += t;
-                }
-                else
-                {
-                    NEED!(input,ip,t+3);
-                    NEED!(out,op,t);
-                    while t > 0
-                    {
-                        out[op] = input[ip];
-                        op += 1; ip += 1;
-                        t -= 1;
-                    }
-                }
-                continue 'outer;
+                        state = next;
+        t = next;
+#[cfg(all(feature = "efficient_unaligned_access"))]{
+        if HAVE!(input,ip,6) && HAVE!(out,op,4)
+        {
+            out[op..op+4].copy_from_slice(&input[ip..ip+4]);
+            op += t;
+            ip += t;
+        }
+        else
+        {
+            NEED!(input,ip,t+3);
+            NEED!(out,op,t);
+            while t > 0
+            {
+                out[op] = input[ip];
+                op += 1; ip += 1;
+                t -= 1;
             }
-            t += 3;
+        }
+    }
+#[cfg(not(feature = "efficient_unaligned_access"))]
+{
+            NEED!(input,ip,t+3);
+            NEED!(out,op,t);
+            while t > 0
+            {
+                out[op] = input[ip];
+                op += 1; ip += 1;
+                t -= 1;
+            }
+}
+                break 'outer;
+            }
             skip_decode = true;
         }
+        break 'outer;
+    }
 
         'inner: loop
         {
@@ -144,7 +159,7 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                     }
                     if !skip_decode
                     {t += 3;}
-
+#[cfg(all(feature = "efficient_unaligned_access"))]{
                     // literal copy from input to out
                     if HAVE!(input,ip,t+15) && HAVE!(out,op,t+15)
                     {
@@ -174,7 +189,22 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                             { break; }
                         }
                     }
+}
+#[cfg(not(feature = "efficient_unaligned_access"))]
+                    {
+                        NEED!(out,op,t);
+                        NEED!(input,ip,t+3);
+                        loop
+                        {
+                            out[op] = input[ip];
+                            op += 1; ip += 1;
+                            t -= 1;
+                            if t <= 0
+                            { break; }
+                        }
+                    }
                     state = 4;
+                    skip_decode=false;
                     continue 'inner;
                 }
                 else if state != 4
@@ -192,23 +222,39 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                     // match_next inline
                     state = next;
                     t = next;
-                    if HAVE!(input,ip,6) && HAVE!(out,op,4)
-                    {
-                        out[op..op+4].copy_from_slice(&input[ip..ip+4]);
-                        op += t;
-                        ip += t;
-                    }
-                    else
-                    {
-                        NEED!(input,ip,t+3);
-                        NEED!(out,op,t);
-                        while t > 0
-                        {
-                            out[op] = input[ip];
-                            op += 1; ip += 1;
-                            t -= 1;
-                        }
-                    }
+                            state = next;
+        t = next;
+#[cfg(all(feature = "efficient_unaligned_access"))]{
+        if HAVE!(input,ip,6) && HAVE!(out,op,4)
+        {
+            out[op..op+4].copy_from_slice(&input[ip..ip+4]);
+            op += t;
+            ip += t;
+        }
+        else
+        {
+            NEED!(input,ip,t+3);
+            NEED!(out,op,t);
+            while t > 0
+            {
+                out[op] = input[ip];
+                op += 1; ip += 1;
+                t -= 1;
+            }
+        }
+    }
+#[cfg(not(feature = "efficient_unaligned_access"))]
+{
+            NEED!(input,ip,t+3);
+            NEED!(out,op,t);
+            while t > 0
+            {
+                out[op] = input[ip];
+                op += 1; ip += 1;
+                t -= 1;
+            }
+}
+                    skip_decode=false;
                     continue 'inner;
                 }
                 else
@@ -228,7 +274,7 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
     m_pos = m_pos.wrapping_sub((t >> 2) & 7);
     m_pos = m_pos.wrapping_sub((input[ip] as usize) << 3);
                 ip += 1;
-                println!("decode: t={} state={} ip={} op={}", t, state, ip, op);
+    
                 t = (t >> 5) - 1 + (3 - 1);
 
             }
@@ -257,7 +303,6 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                 m_pos = op - 1;
                 next = get_unaligned_le16(input, ip);
                 ip += 2;
-                println!("t>=32: next={} next>>2={} op={}", next, next>>2, op);
                 m_pos = m_pos.wrapping_sub(next >> 2);
                 next &= 3;
             }
@@ -277,25 +322,39 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
                     next &= 3;
                     ip += 3;
                     // match_next inline
-                    state = next;
-                    t = next;
-                    if HAVE!(input,ip,6) && HAVE!(out,op,4)
-                    {
-                        out[op..op+4].copy_from_slice(&input[ip..ip+4]);
-                        op += t;
-                        ip += t;
-                    }
-                    else
-                    {
-                        NEED!(input,ip,t+3);
-                        NEED!(out,op,t);
-                        while t > 0
-                        {
-                            out[op] = input[ip];
-                            op += 1; ip += 1;
-                            t -= 1;
-                        }
-                    }
+                            state = next;
+        t = next;
+#[cfg(all(feature = "efficient_unaligned_access"))]{
+        if HAVE!(input,ip,6) && HAVE!(out,op,4)
+        {
+            out[op..op+4].copy_from_slice(&input[ip..ip+4]);
+            op += t;
+            ip += t;
+        }
+        else
+        {
+            NEED!(input,ip,t+3);
+            NEED!(out,op,t);
+            while t > 0
+            {
+                out[op] = input[ip];
+                op += 1; ip += 1;
+                t -= 1;
+            }
+        }
+    }
+#[cfg(not(feature = "efficient_unaligned_access"))]
+{
+            NEED!(input,ip,t+3);
+            NEED!(out,op,t);
+            while t > 0
+            {
+                out[op] = input[ip];
+                op += 1; ip += 1;
+                t -= 1;
+            }
+}
+                    skip_decode=false;
                     continue 'inner;
                 }
                 else
@@ -354,9 +413,8 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
         // TEST_LB(m_pos)
         // TEST_LB!(m_pos,op);
         // TEST_LB(m_pos)
-println!("TEST_LB: m_pos={} op={} t={} state={}", m_pos, op, t, state);
 TEST_LB!(m_pos,op);
-
+#[cfg(all(feature = "efficient_unaligned_access"))]{
         // match copy
         if op - m_pos >= 8
         {
@@ -384,7 +442,8 @@ TEST_LB!(m_pos,op);
                     out[op..op+4].copy_from_slice(&input[ip..ip+4]);
                     op += next;
                     ip += next;
-                    continue 'outer;
+                    skip_decode=false;
+                    continue 'inner;
                 }
             }
             else
@@ -415,10 +474,27 @@ TEST_LB!(m_pos,op);
                 { break; }
             }
         }
-
+    }
+    #[cfg(not(feature = "efficient_unaligned_access"))]
+ {
+            let oe = op + t;
+            NEED!(out,op,t);
+            out[op+0] = out[m_pos+0];
+            out[op+1] = out[m_pos+1];
+            op += 2;
+            m_pos += 2;
+            loop
+            {
+                out[op] = out[m_pos];
+                op += 1; m_pos += 1;
+                if op >= oe
+                { break; }
+            }
+    }
         // match_next
         state = next;
         t = next;
+#[cfg(all(feature = "efficient_unaligned_access"))]{
         if HAVE!(input,ip,6) && HAVE!(out,op,4)
         {
             out[op..op+4].copy_from_slice(&input[ip..ip+4]);
@@ -436,10 +512,21 @@ TEST_LB!(m_pos,op);
                 t -= 1;
             }
         }
-
-        continue 'inner;
     }
-    } // end 'outer loop
+#[cfg(not(feature = "efficient_unaligned_access"))]
+{
+            NEED!(input,ip,t+3);
+            NEED!(out,op,t);
+            while t > 0
+            {
+                out[op] = input[ip];
+                op += 1; ip += 1;
+                t -= 1;
+            }
+}
+       skip_decode=false;
+        continue 'inner;
+        }//inner loop end
 
     *out_len = op;
     return Ok(());

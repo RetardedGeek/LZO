@@ -145,6 +145,7 @@ pub fn lzo1x_do_compress(input :&[u8],out :&mut [u8],out_ind :&mut usize,tp :&mu
                 }
                 else {
                     let mut tt = t - 18;
+					need_op!(op,out,1);
                     out[op]=0;
                     op+=1;
                     while tt>255
@@ -153,10 +154,11 @@ pub fn lzo1x_do_compress(input :&[u8],out :&mut [u8],out_ind :&mut usize,tp :&mu
                         out[op]=0;
                         op+=1;
                     }
+					need_op!(op,out,1);
                     out[op]=tt as u8;
                     op+=1
                 }
-
+				need_op!(op,out,t);
                 loop
                 {
                     out[op..op+16].copy_from_slice(&input[ii..ii+16]);
@@ -225,6 +227,7 @@ pub fn lzo1x_do_compress(input :&[u8],out :&mut [u8],out_ind :&mut usize,tp :&mu
 				    get_unaligned_32le(input,m_pos + m_len);
 				if ip + m_len >= ip_end
  				{break 'outer;}
+				if input[ip+m_len] != input[m_pos+m_len] { break; }
             }
         }
         m_len+=(v.trailing_zeros()/8) as usize;
@@ -260,6 +263,7 @@ pub fn lzo1x_do_compress(input :&[u8],out :&mut [u8],out_ind :&mut usize,tp :&mu
 			m_len += 1;
 			if ip + m_len >= ip_end
 				{break 'outer;}
+				 if input[ip+m_len] != input[m_pos+m_len] { break; }
         }
 
     }
@@ -278,9 +282,10 @@ break 'outer;
             op+=1;
 			out[op] = (m_off >> 3) as u8;
             op+=1;
-		} else if m_off <= M3_MAX_OFFSET {
+		} else if m_off <= M3_MAX_OFFSET{
 			m_off -= 1;
 			need_op!(op,out,1);
+			// if m_len < 3 { m_len = 3; } 
 			if m_len <= M3_MAX_LEN
 				{
                     out[op] = M3_MARKER | (m_len - 2) as u8;
@@ -382,8 +387,8 @@ pub fn  lzogeneric1x_1_compress(input :&[u8],in_len:usize,out :&mut [u8],out_len
 	while l > 20 {
 		let ll = l.min(m4_max_offset + 1);
 		let ll_end = ip + ll;
-		// if ll_end + ((t + ll) >> 5) <= ll_end
-		// 	{break;}
+		if ll_end + ((t + ll) >> 5) <= ll_end
+			{break;}
 		wrkmem[..D_SIZE].fill(0);
 		lzo1x_do_compress(&input[ip..ip+ll], out, &mut op, &mut t, wrkmem, &mut state_offset, bitstream_version)?;
 		ip += ll;

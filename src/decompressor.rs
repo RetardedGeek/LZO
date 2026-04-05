@@ -1,58 +1,47 @@
 #[derive(Debug)]
-pub enum Error
-{
-    output_overrun,
-    input_overrun,
-    lzo_e_error,
-    input_not_consumed,
+pub enum Error {
+    OutputOverrun,
+    InputOverrun,
+    LzoEError,
+    InputNotConsumed,
 }
 
-const MAX_255_COUNT:usize =(usize::MAX / 255) - 2;
+const MAX_255_COUNT: usize = (usize::MAX / 255) - 2;
 const M2_MAX_OFFSET: usize = 0x0800;
 const MIN_ZERO_RUN_LENGTH: usize = 4;
 
-fn get_unaligned_le16(input: &[u8], ip: usize) -> usize
-{
-    (input[ip] as usize) | ((input[ip+1] as usize) << 8)
+fn get_unaligned_le16(input: &[u8], ip: usize) -> usize {
+    (input[ip] as usize) | ((input[ip + 1] as usize) << 8)
 }
 
-macro_rules! NEED
-{
-    ($input: expr,$p:expr,$n:expr) =>
-    {
-        if $p+$n>$input.len()
-        {
-            return Err(Error::input_overrun);
-        }
-    };
-    ($out: expr,$p:expr ,$n:expr) => 
-    {
-        if $p + $n>$out.len()
-        {
-            return Err(Error::output_overrun);
+macro_rules! NEED_IP {
+    ($input:expr, $p:expr, $n:expr) => {
+        if $p + $n > $input.len() {
+            return Err(Error::InputOverrun);
         }
     };
 }
-macro_rules! HAVE
-{
-    ($ar:expr,$p:expr,$n:expr) =>
-    {
-        $p+$n <= $ar.len()
+macro_rules! NEED_OP {
+    ($out:expr, $p:expr, $n:expr) => {
+        if $p + $n > $out.len() {
+            return Err(Error::OutputOverrun);
+        }
     };
 }
-macro_rules! TEST_LB
-{
-    ($m_pos:expr,$op:expr) =>
-    {
-        if $m_pos >= $op
-        {
-            return Err(Error::lzo_e_error);
+macro_rules! TEST_LB {
+    ($m_pos:expr,$op:expr) => {
+        if $m_pos >= $op {
+            return Err(Error::LzoEError);
         }
     };
 }
 
-pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len: &mut usize) -> Result<(), Error>
-{
+pub fn lzo1x_decompress_safe(
+    input: &[u8],
+    in_len: usize,
+    out: &mut [u8],
+    out_len: &mut usize,
+) -> Result<(), Error> {
     let mut op: usize;
     let mut ip: usize;
     let mut t: usize = 0;
@@ -64,63 +53,55 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
 
     op = 0;
     ip = 0;
-    if in_len < 3
-    {
+    if in_len < 3 {
         *out_len = op;
-        return Err(Error::input_overrun);
+        return Err(Error::InputOverrun);
     }
-    if in_len >= 5 && input[ip] == 17
-    {
-        bitstream_version = input[ip+1];
+    if in_len >= 5 && input[ip] == 17 {
+        bitstream_version = input[ip + 1];
         ip += 2;
+    } else {
+        bitstream_version = 0;
     }
-    else
-    { bitstream_version = 0; }
     let mut skip_decode = false;
-    'outer: loop
-    {
-        if input[ip] > 17
-        {
+    'outer: loop {
+        if input[ip] > 17 {
             t = (input[ip] as usize) - 17;
             ip += 1;
-            if t < 4
-            {
+            if t < 4 {
                 next = t;
                 // match_next inline
                 state = next;
                 t = next;
-                        state = next;
-        t = next;
-#[cfg(all(feature = "efficient_unaligned_access"))]{
-        if HAVE!(input,ip,6) && HAVE!(out,op,4)
-        {
-            out[op..op+4].copy_from_slice(&input[ip..ip+4]);
-            op += t;
-            ip += t;
-        }
-        else
-        {
-            NEED!(input,ip,t+3);
-            NEED!(out,op,t);
-            while t > 0
-            {
-                out[op] = input[ip];
-                op += 1; ip += 1;
-                t -= 1;
-            }
-        }
-    }
-#[cfg(not(feature = "efficient_unaligned_access"))]
-{
-            NEED!(input,ip,t+3);
-            NEED!(out,op,t);
-            while t > 0
-            {
-                out[op] = input[ip];
-                op += 1; ip += 1;
-                t -= 1;
-            }
-}
+
+                #[cfg(all(feature = "efficient_unaligned_access"))]
+                {
+                    if HAVE!(input, ip, 6) && HAVE!(out, op, 4) {
+                        out[op..op + 4].copy_from_slice(&input[ip..ip + 4]);
+                        op += t;
+                        ip += t;
+                    } else {
+                        NEED_IP!(input, ip, t + 3);
+                        NEED_OP!(out, op, t);
+                        while t > 0 {
+                            out[op] = input[ip];
+                            op += 1;
+                            ip += 1;
+                            t -= 1;
+                        }
+                    }
+                }
+                #[cfg(not(feature = "efficient_unaligned_access"))]
+                {
+                    NEED_IP!(input, ip, t + 3);
+                    NEED_OP!(out, op, t);
+                    while t > 0 {
+                        out[op] = input[ip];
+                        op += 1;
+                        ip += 1;
+                        t -= 1;
+                    }
+                }
                 break 'outer;
             }
             skip_decode = true;
@@ -128,405 +109,369 @@ pub fn lzo1x_decompress_safe(input: &[u8], in_len: usize, out: &mut[u8], out_len
         break 'outer;
     }
 
-        'inner: loop
-        {
-            if !skip_decode
-            {
-                t = input[ip] as usize;
-                ip += 1;
-            }
-            if t < 16 || skip_decode
-            {
-                if skip_decode || state == 0
-                {
-                    if t == 0 && !skip_decode
-                    {
-                        let mut offset: usize;
-                        let ip_last = ip;
-                        while input[ip] == 0
-                        {
-                            ip += 1;
-                            NEED!(input,ip,1);
-                        }
-                        offset = ip - ip_last;
-                        if offset > MAX_255_COUNT
-                        {
-                            return Err(Error::lzo_e_error);
-                        }
-                        offset = (offset << 8) - offset;
-                        t += offset + 15 + (input[ip] as usize);
+    'inner: loop {
+        if !skip_decode {
+            t = input[ip] as usize;
+            ip += 1;
+        }
+        if t < 16 || skip_decode {
+            if skip_decode || state == 0 {
+                if t == 0 && !skip_decode {
+                    let mut offset: usize;
+                    let ip_last = ip;
+                    while input[ip] == 0 {
                         ip += 1;
+                        NEED_IP!(input, ip, 1);
                     }
-                    if !skip_decode
-                    {t += 3;}
-#[cfg(all(feature = "efficient_unaligned_access"))]{
+                    offset = ip - ip_last;
+                    if offset > MAX_255_COUNT {
+                        return Err(Error::LzoEError);
+                    }
+                    offset = (offset << 8) - offset;
+                    t += offset + 15 + (input[ip] as usize);
+                    ip += 1;
+                }
+                if !skip_decode {
+                    t += 3;
+                }
+                #[cfg(all(feature = "efficient_unaligned_access"))]
+                {
                     // literal copy from input to out
-                    if HAVE!(input,ip,t+15) && HAVE!(out,op,t+15)
-                    {
+                    if HAVE!(input, ip, t + 15) && HAVE!(out, op, t + 15) {
                         let ie = ip + t;
                         let oe = op + t;
-                        loop
-                        {
-                            out[op..op+16].copy_from_slice(&input[ip..ip+16]);
+                        loop {
+                            out[op..op + 16].copy_from_slice(&input[ip..ip + 16]);
                             op += 16;
                             ip += 16;
-                            if ip >= ie
-                            { break; }
+                            if ip >= ie {
+                                break;
+                            }
                         }
                         ip = ie;
                         op = oe;
-                    }
-                    else
-                    {
-                        NEED!(out,op,t);
-                        NEED!(input,ip,t+3);
-                        loop
-                        {
+                    } else {
+                        NEED_OP!(out, op, t);
+                        NEED_IP!(input, ip, t + 3);
+                        loop {
                             out[op] = input[ip];
-                            op += 1; ip += 1;
+                            op += 1;
+                            ip += 1;
                             t -= 1;
-                            if t <= 0
-                            { break; }
+                            if t <= 0 {
+                                break;
+                            }
                         }
                     }
-}
-#[cfg(not(feature = "efficient_unaligned_access"))]
-                    {
-                        NEED!(out,op,t);
-                        NEED!(input,ip,t+3);
-                        loop
-                        {
-                            out[op] = input[ip];
-                            op += 1; ip += 1;
-                            t -= 1;
-                            if t <= 0
-                            { break; }
-                        }
-                    }
-                    state = 4;
-                    skip_decode=false;
-                    continue 'inner;
                 }
-                else if state != 4
+                #[cfg(not(feature = "efficient_unaligned_access"))]
                 {
-                    next = t & 3;
-                    m_pos = op - 1;
-                    m_pos = m_pos.wrapping_sub( t >> 2);
-                    m_pos = m_pos.wrapping_sub((input[ip] as usize) << 2);
-                    ip += 1;
-                    TEST_LB!(m_pos,op);
-                    NEED!(out,op,2);
-                    out[op+0] = out[m_pos+0];
-                    out[op+1] = out[m_pos+1];
-                    op += 2;
-                    // match_next inline
-                    state = next;
-                    t = next;
-                            state = next;
-        t = next;
-#[cfg(all(feature = "efficient_unaligned_access"))]{
-        if HAVE!(input,ip,6) && HAVE!(out,op,4)
-        {
-            out[op..op+4].copy_from_slice(&input[ip..ip+4]);
-            op += t;
-            ip += t;
-        }
-        else
-        {
-            NEED!(input,ip,t+3);
-            NEED!(out,op,t);
-            while t > 0
-            {
-                out[op] = input[ip];
-                op += 1; ip += 1;
-                t -= 1;
-            }
-        }
-    }
-#[cfg(not(feature = "efficient_unaligned_access"))]
-{
-            NEED!(input,ip,t+3);
-            NEED!(out,op,t);
-            while t > 0
-            {
-                out[op] = input[ip];
-                op += 1; ip += 1;
-                t -= 1;
-            }
-}
-                    skip_decode=false;
-                    continue 'inner;
-                }
-                else
-                {
-                    next = t & 3;
-                    m_pos = op.wrapping_sub(1 + M2_MAX_OFFSET);
-                    m_pos = m_pos.wrapping_sub(t >> 2);
-                    m_pos = m_pos.wrapping_sub((input[ip] as usize) << 2);
-                    ip += 1;
-                    t = 3
-                }
-            }
-            else if t >= 64
-            {
-                next = t & 3;
-    m_pos = op.wrapping_sub(1);
-    m_pos = m_pos.wrapping_sub((t >> 2) & 7);
-    m_pos = m_pos.wrapping_sub((input[ip] as usize) << 3);
-                ip += 1;
-    
-                t = (t >> 5) - 1 + (3 - 1);
+                    NEED_OP!(out, op, t);
+                    NEED_IP!(input, ip, t + 3);
+                    loop {
+                        // In the literal copy path (state==0 section), add:
 
-            }
-            else if t >= 32
-            {
-                t = (t & 31) + (3 - 1);
-                if t == 2
+                        out[op] = input[ip];
+                        op += 1;
+                        ip += 1;
+                        t -= 1;
+                        if t <= 0 {
+                            break;
+                        }
+                    }
+                }
+                state = 4;
+                skip_decode = false;
+                continue 'inner;
+            } else if state != 4 {
+                next = t & 3;
+                m_pos = op - 1;
+                m_pos = m_pos.wrapping_sub(t >> 2);
+                m_pos = m_pos.wrapping_sub((input[ip] as usize) << 2);
+                ip += 1;
+                TEST_LB!(m_pos, op);
+                NEED_OP!(out, op, 2);
+                out[op + 0] = out[m_pos + 0];
+                out[op + 1] = out[m_pos + 1];
+                op += 2;
+                // match_next inline
+                state = next;
+                t = next;
+                state = next;
+                t = next;
+                #[cfg(all(feature = "efficient_unaligned_access"))]
                 {
+                    if HAVE!(input, ip, 6) && HAVE!(out, op, 4) {
+                        out[op..op + 4].copy_from_slice(&input[ip..ip + 4]);
+                        op += t;
+                        ip += t;
+                    } else {
+                        NEED_IP!(input, ip, t + 3);
+                        NEED_OP!(out, op, t);
+                        while t > 0 {
+                            out[op] = input[ip];
+                            op += 1;
+                            ip += 1;
+                            t -= 1;
+                        }
+                    }
+                }
+                #[cfg(not(feature = "efficient_unaligned_access"))]
+                {
+                    NEED_IP!(input, ip, t + 3);
+                    NEED_OP!(out, op, t);
+                    while t > 0 {
+                        out[op] = input[ip];
+                        op += 1;
+                        ip += 1;
+                        t -= 1;
+                    }
+                }
+                skip_decode = false;
+                continue 'inner;
+            } else {
+                next = t & 3;
+                m_pos = op.wrapping_sub(1 + M2_MAX_OFFSET);
+                m_pos = m_pos.wrapping_sub(t >> 2);
+                m_pos = m_pos.wrapping_sub((input[ip] as usize) << 2);
+                ip += 1;
+                t = 3
+            }
+        } else if t >= 64 {
+            next = t & 3;
+            m_pos = op - 1;
+            m_pos = m_pos.wrapping_sub((t >> 2) & 7);
+            m_pos = m_pos.wrapping_sub((input[ip] as usize) << 3);
+            ip += 1;
+
+            t = (t >> 5) - 1 + (3 - 1);
+        } else if t >= 32 {
+            t = (t & 31) + (3 - 1);
+            if t == 2 {
+                let mut offset: usize;
+                let ip_last = ip;
+                while input[ip] == 0 {
+                    ip += 1;
+                    NEED_IP!(input, ip, 1);
+                }
+                offset = ip - ip_last;
+                if offset > MAX_255_COUNT {
+                    return Err(Error::LzoEError);
+                }
+                offset = (offset << 8) - offset;
+                t += offset + 31 + (input[ip] as usize);
+                ip += 1;
+                NEED_IP!(input, ip, 2);
+            }
+            m_pos = op - 1;
+            next = get_unaligned_le16(input, ip);
+            ip += 2;
+            m_pos = m_pos.wrapping_sub(next >> 2);
+            next &= 3;
+        } else {
+            NEED_IP!(input, ip, 2);
+            next = get_unaligned_le16(input, ip);
+            if ((next & 0xfffc) == 0xfffc) && ((t & 0xf8) == 0x18) && bitstream_version != 0 {
+                NEED_IP!(input, ip, 3);
+                t &= 7;
+                t |= (input[ip + 2] as usize) << 3;
+                t += MIN_ZERO_RUN_LENGTH;
+                NEED_OP!(out, op, t);
+                out[op..op + t].fill(0);
+                op += t;
+                next &= 3;
+                ip += 3;
+                // match_next inline
+                state = next;
+                t = next;
+                #[cfg(all(feature = "efficient_unaligned_access"))]
+                {
+                    if HAVE!(input, ip, 6) && HAVE!(out, op, 4) {
+                        out[op..op + 4].copy_from_slice(&input[ip..ip + 4]);
+                        op += t;
+                        ip += t;
+                    } else {
+                        NEED_IP!(input, ip, t + 3);
+                        NEED_OP!(out, op, t);
+                        while t > 0 {
+                            out[op] = input[ip];
+                            op += 1;
+                            ip += 1;
+                            t -= 1;
+                        }
+                    }
+                }
+                #[cfg(not(feature = "efficient_unaligned_access"))]
+                {
+                    NEED_IP!(input, ip, t + 3);
+                    NEED_OP!(out, op, t);
+                    while t > 0 {
+                        out[op] = input[ip];
+                        op += 1;
+                        ip += 1;
+                        t -= 1;
+                    }
+                }
+                skip_decode = false;
+                continue 'inner;
+            } else {
+                m_pos = op;
+                m_pos = m_pos.wrapping_sub((t & 8) << 11);
+                t = (t & 7) + (3 - 1);
+                if t == 2 {
                     let mut offset: usize;
                     let ip_last = ip;
-                    while input[ip] == 0
-                    {
+                    while input[ip] == 0 {
                         ip += 1;
-                        NEED!(input,ip,1);
+                        NEED_IP!(input, ip, 1);
                     }
                     offset = ip - ip_last;
-                    if offset > MAX_255_COUNT
-                    {
-                        return Err(Error::lzo_e_error);
+                    if offset > MAX_255_COUNT {
+                        return Err(Error::LzoEError);
                     }
                     offset = (offset << 8) - offset;
-                    t += offset + 31 + (input[ip] as usize);
+                    t += offset + 7 + (input[ip] as usize);
                     ip += 1;
-                    NEED!(input,ip,2);
+                    NEED_IP!(input, ip, 2);
+                    next = get_unaligned_le16(input, ip);
                 }
-                m_pos = op - 1;
-                next = get_unaligned_le16(input, ip);
                 ip += 2;
                 m_pos = m_pos.wrapping_sub(next >> 2);
                 next &= 3;
-            }
-            else
-            {
-                NEED!(input,ip,2);
-                next = get_unaligned_le16(input, ip);
-                if ((next & 0xfffc) == 0xfffc) && ((t & 0xf8) == 0x18) && bitstream_version != 0
-                {
-                    NEED!(input,ip,3);
-                    t &= 7;
-                    t |= (input[ip+2] as usize) << 3;
-                    t += MIN_ZERO_RUN_LENGTH;
-                    NEED!(out,op,t);
-                    out[op..op+t].fill(0);
-                    op += t;
-                    next &= 3;
-                    ip += 3;
-                    // match_next inline
-                            state = next;
-        t = next;
-#[cfg(all(feature = "efficient_unaligned_access"))]{
-        if HAVE!(input,ip,6) && HAVE!(out,op,4)
-        {
-            out[op..op+4].copy_from_slice(&input[ip..ip+4]);
-            op += t;
-            ip += t;
-        }
-        else
-        {
-            NEED!(input,ip,t+3);
-            NEED!(out,op,t);
-            while t > 0
-            {
-                out[op] = input[ip];
-                op += 1; ip += 1;
-                t -= 1;
+                if m_pos == op {
+                    *out_len = op;
+                    return if t != 3 {
+                        Err(Error::LzoEError)
+                    } else if ip == ip_end {
+                        Ok(())
+                    } else if ip < ip_end {
+                        Err(Error::InputNotConsumed)
+                    } else {
+                        Err(Error::InputOverrun)
+                    };
+                }
+                m_pos = m_pos.wrapping_sub(0x4000);
             }
         }
-    }
-#[cfg(not(feature = "efficient_unaligned_access"))]
-{
-            NEED!(input,ip,t+3);
-            NEED!(out,op,t);
-            while t > 0
-            {
-                out[op] = input[ip];
-                op += 1; ip += 1;
-                t -= 1;
-            }
-}
-                    skip_decode=false;
-                    continue 'inner;
-                }
-                else
-                {
-                    m_pos = op;
-                    m_pos = m_pos.wrapping_sub((t & 8) << 11);
-                    t = (t & 7) + (3 - 1);
-                    if t == 2
-                    {
-                        let mut offset: usize;
-                        let ip_last = ip;
-                        while input[ip] == 0
-                        {
-                            ip += 1;
-                            NEED!(input,ip,1);
-                        }
-                        offset = ip - ip_last;
-                        if offset > MAX_255_COUNT
-                        {
-                            return Err(Error::lzo_e_error);
-                        }
-                        offset = (offset << 8) - offset;
-                        t += offset + 7 + (input[ip] as usize);
-                        ip += 1;
-                        NEED!(input,ip,2);
-                        next = get_unaligned_le16(input, ip);
-                    }
-                    ip += 2;
-                    m_pos = m_pos.wrapping_sub(next >> 2);
-                     next &= 3;
-                    if m_pos == op
-                    {
-                        *out_len = op;
-                        return if t != 3
-                        {
-                            Err(Error::lzo_e_error)
-                        }
-                        else if ip == ip_end
-                        {
-                            Ok(())
-                        }
-                        else if ip < ip_end
-                        {
-                            Err(Error::input_not_consumed)
-                        }
-                        else
-                        {
-                            Err(Error::input_overrun)
-                        };
-                    }
-                    m_pos = m_pos.wrapping_sub(0x4000);
-                }
-            }
         // end if !skip_decode
 
         // TEST_LB(m_pos)
         // TEST_LB!(m_pos,op);
         // TEST_LB(m_pos)
-TEST_LB!(m_pos,op);
-#[cfg(all(feature = "efficient_unaligned_access"))]{
-        // match copy
-        if op - m_pos >= 8
+        TEST_LB!(m_pos, op);
+        // Right before the match copy (after TEST_LB), add:
+        // println!("COPY: op={} m_pos={} t={} dist={}", op, m_pos, t, op-m_pos);
+        #[cfg(all(feature = "efficient_unaligned_access"))]
         {
-            let oe = op + t;
-            if HAVE!(out,op,t+15)
-            {
-                loop
-                {
-                    let mut temp_out= [0;8];
-                    temp_out[0..8].copy_from_slice(&out[m_pos..m_pos+8]);
-                    out[op..op+8].copy_from_slice(&temp_out[0..8]);
-                    op += 8;
-                    m_pos += 8;
-                    temp_out[0..8].copy_from_slice(&out[m_pos..m_pos+8]);
-                    out[op..op+8].copy_from_slice(&temp_out[0..8]);
-                    op += 8;
-                    m_pos += 8;
-                    if op >= oe
-                    { break; }
+            // match copy
+            if op - m_pos >= 8 {
+                let oe = op + t;
+                if HAVE!(out, op, t + 15) {
+                    loop {
+                        let mut temp_out = [0; 8];
+                        temp_out[0..8].copy_from_slice(&out[m_pos..m_pos + 8]);
+                        out[op..op + 8].copy_from_slice(&temp_out[0..8]);
+                        op += 8;
+                        m_pos += 8;
+                        if op >= oe {
+                            break;
+                        }
+                        temp_out[0..8].copy_from_slice(&out[m_pos..m_pos + 8]);
+                        out[op..op + 8].copy_from_slice(&temp_out[0..8]);
+                        op += 8;
+                        m_pos += 8;
+                        if op >= oe {
+                            break;
+                        }
+                    }
+                    op = oe;
+                    if HAVE!(input, ip, 6) {
+                        state = next;
+                        out[op..op + 4].copy_from_slice(&input[ip..ip + 4]);
+                        op += next;
+                        ip += next;
+                        skip_decode = false;
+                        continue 'inner;
+                    }
+                } else {
+                    NEED_OP!(out, op, t);
+                    loop {
+                        out[op] = out[m_pos];
+                        op += 1;
+                        m_pos += 1;
+                        if op >= oe {
+                            break;
+                        }
+                    }
                 }
-                op = oe;
-                if HAVE!(input,ip,6)
-                {
-                    state = next;
-                    out[op..op+4].copy_from_slice(&input[ip..ip+4]);
-                    op += next;
-                    ip += next;
-                    skip_decode=false;
-                    continue 'inner;
-                }
-            }
-            else
-            {
-                NEED!(out,op,t);
-                loop
-                {
+            } else {
+                let oe = op + t;
+                NEED_OP!(out, op, t);
+                out[op + 0] = out[m_pos + 0];
+                out[op + 1] = out[m_pos + 1];
+                op += 2;
+                m_pos += 2;
+                loop {
                     out[op] = out[m_pos];
-                    op += 1; m_pos += 1;
-                    if op >= oe
-                    { break; }
+                    op += 1;
+                    m_pos += 1;
+                    if op >= oe {
+                        break;
+                    }
                 }
             }
         }
-        else
+        #[cfg(not(feature = "efficient_unaligned_access"))]
         {
             let oe = op + t;
-            NEED!(out,op,t);
-            out[op+0] = out[m_pos+0];
-            out[op+1] = out[m_pos+1];
+            NEED_OP!(out, op, t);
+            out[op + 0] = out[m_pos + 0];
+            out[op + 1] = out[m_pos + 1];
             op += 2;
             m_pos += 2;
-            loop
-            {
+            loop {
                 out[op] = out[m_pos];
-                op += 1; m_pos += 1;
-                if op >= oe
-                { break; }
+                op += 1;
+                m_pos += 1;
+                if op >= oe {
+                    break;
+                }
             }
         }
-    }
-    #[cfg(not(feature = "efficient_unaligned_access"))]
- {
-            let oe = op + t;
-            NEED!(out,op,t);
-            out[op+0] = out[m_pos+0];
-            out[op+1] = out[m_pos+1];
-            op += 2;
-            m_pos += 2;
-            loop
-            {
-                out[op] = out[m_pos];
-                op += 1; m_pos += 1;
-                if op >= oe
-                { break; }
-            }
-    }
         // match_next
         state = next;
         t = next;
-#[cfg(all(feature = "efficient_unaligned_access"))]{
-        if HAVE!(input,ip,6) && HAVE!(out,op,4)
+        #[cfg(all(feature = "efficient_unaligned_access"))]
         {
-            out[op..op+4].copy_from_slice(&input[ip..ip+4]);
-            op += t;
-            ip += t;
+            if HAVE!(input, ip, 6) && HAVE!(out, op, 4) {
+                out[op..op + 4].copy_from_slice(&input[ip..ip + 4]);
+                op += t;
+                ip += t;
+            } else {
+                NEED_IP!(input, ip, t + 3);
+                NEED_OP!(out, op, t);
+                while t > 0 {
+                    out[op] = input[ip];
+                    op += 1;
+                    ip += 1;
+                    t -= 1;
+                }
+            }
         }
-        else
+        #[cfg(not(feature = "efficient_unaligned_access"))]
         {
-            NEED!(input,ip,t+3);
-            NEED!(out,op,t);
-            while t > 0
-            {
+            NEED_IP!(input, ip, t + 3);
+            NEED_OP!(out, op, t);
+            while t > 0 {
                 out[op] = input[ip];
-                op += 1; ip += 1;
+                op += 1;
+                ip += 1;
                 t -= 1;
             }
         }
-    }
-#[cfg(not(feature = "efficient_unaligned_access"))]
-{
-            NEED!(input,ip,t+3);
-            NEED!(out,op,t);
-            while t > 0
-            {
-                out[op] = input[ip];
-                op += 1; ip += 1;
-                t -= 1;
-            }
-}
-       skip_decode=false;
+        skip_decode = false;
         continue 'inner;
-        }//inner loop end
+    } //inner loop end
 
     *out_len = op;
     return Ok(());
